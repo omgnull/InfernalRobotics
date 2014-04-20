@@ -45,8 +45,7 @@ public class MuMechToggle : MuMechPart
 	public string fixedMesh = "";
     public string dynamicMesh = "";
 	public float friction = 0.5F;
-
-    private ConfigurableJoint joint;
+    public string bottomNode = "bottom";
 
 	public string translate_model = "on";
 	public Vector3 translateAxis = Vector3.forward;
@@ -81,9 +80,16 @@ public class MuMechToggle : MuMechPart
 	protected int rotationChanged = 0;
 	protected int translationChanged = 0;
 
+    protected Material debugMaterial;
+    protected Vector4 debugMaterialColor = new Vector4(1f, 0, 0, 1f);
+    protected Transform modelTransform;
+
+    private ConfigurableJoint joint;
+
 	public int moveFlags = 0;
 	public bool isRotationLock; //motion lock
 	protected bool isGuiShown = true;
+
 
 	#region speed control
 	//protected bool isCustomSpeed = false;
@@ -163,8 +169,8 @@ public class MuMechToggle : MuMechPart
 		{
 			if (toggle_model)
 			{
-				transform.FindChild("model").FindChild(on_model).renderer.enabled = true;
-				transform.FindChild("model").FindChild(off_model).renderer.enabled = false;
+                modelTransform.Find(on_model).renderer.enabled = true;
+                modelTransform.Find(off_model).renderer.enabled = false;
 			}
 			if (toggle_drag)
 			{
@@ -183,8 +189,8 @@ public class MuMechToggle : MuMechPart
 		{
 			if (toggle_model)
 			{
-				transform.FindChild("model").FindChild(on_model).renderer.enabled = false;
-				transform.FindChild("model").FindChild(off_model).renderer.enabled = true;
+                modelTransform.Find(on_model).renderer.enabled = false;
+                modelTransform.Find(off_model).renderer.enabled = true;
 			}
 			if (toggle_drag)
 			{
@@ -266,60 +272,126 @@ public class MuMechToggle : MuMechPart
 
 	protected override void onPartAwake()
 	{
-		colliderizeChilds(transform.FindChild("model"));
+        colliderizeChilds(modelTransform);
 		base.onPartAwake();
 	}
 
 	protected override void onPartLoad()
 	{
-		colliderizeChilds(transform.FindChild("model"));
+        colliderizeChilds(modelTransform);
 		base.onPartLoad();
 	}
 
 	protected void reparentFriction(Transform obj)
 	{
-		Material debug = new Material(Shader.Find("KSP/Specular"));
-		debug.color = Color.red;
-		Transform rotMod = transform.FindChild("model").FindChild(rotate_model);
-		for (int i = 0; i < obj.childCount; i++)
-		{
-			MeshCollider tmp = obj.GetChild(i).GetComponent<MeshCollider>();
-			if (tmp != null)
-			{
-				tmp.material.dynamicFriction = tmp.material.staticFriction = friction;
-				tmp.material.frictionCombine = PhysicMaterialCombine.Maximum;
-				if (debugColliders)
-				{
-					MeshFilter mf = tmp.gameObject.GetComponent<MeshFilter>();
-					if (mf == null)
-					{
-						mf = tmp.gameObject.AddComponent<MeshFilter>();
-					}
-					mf.sharedMesh = tmp.sharedMesh;
-					MeshRenderer mr = tmp.gameObject.GetComponent<MeshRenderer>();
-					if (mr == null)
-					{
-						mr = tmp.gameObject.AddComponent<MeshRenderer>();
-					}
-					mr.sharedMaterial = debug;
-				}
-			}
-			if (obj.GetChild(i).name.StartsWith("fixed_node_collider") && (parent != null))
-			{
-				print("Toggle: reparenting collider " + obj.GetChild(i).name);
-				obj.GetChild(i).RotateAround(transform.TransformPoint(rotatePivot), transform.TransformDirection(-rotateAxis), (invertSymmetry ? ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? -1 : 1) : -1) * rotation);
-				obj.GetChild(i).Translate(transform.TransformDirection(translateAxis.normalized) * -translation, Space.World);
-				obj.GetChild(i).parent = parent.transform;
-			}
-		}
-		if ((mobileColliders.Count > 0) && (rotMod != null))
-		{
-			foreach (Transform c in mobileColliders)
-			{
-				c.parent = rotMod;
-			}
-		}
+        for (int i = 0; i < obj.childCount; i++)
+        {
+            Transform child = obj.GetChild(i);
+            MeshCollider tmp = child.GetComponent<MeshCollider>();
+
+            if (tmp != null)
+            {
+                tmp.material.dynamicFriction = tmp.material.staticFriction = friction;
+                tmp.material.frictionCombine = PhysicMaterialCombine.Maximum;
+
+                if (debugColliders)
+                {
+                    DebugCollider(tmp);
+                }
+            }
+
+            if (child.name.StartsWith("fixed_node_collider") && (parent != null))
+            {
+                print("Toggle: reparenting collider " + child.name);
+                AttachToParent(child);
+            }
+        }
+
+        /*
+        if ((mobileColliders.Count > 0) && (rotate_model_transform != null))
+        {
+            foreach (Transform c in mobileColliders)
+            {
+                c.parent = rotate_model_transform;
+            }
+        }
+        //*/
 	}
+
+    protected void DebugCollider(MeshCollider collider)
+    {
+        if (debugMaterial == null)
+        {
+            debugMaterial = new Material(Shader.Find("Self-Illumin/Specular"));
+            debugMaterial.color = debugMaterialColor;
+        }
+
+        MeshFilter meshFilter = collider.gameObject.GetComponent<MeshFilter>();
+
+        if (meshFilter == null)
+        {
+            meshFilter = collider.gameObject.AddComponent<MeshFilter>();
+        }
+
+        meshFilter.sharedMesh = collider.sharedMesh;
+        MeshRenderer meshRenderer = collider.gameObject.GetComponent<MeshRenderer>();
+
+        if (meshRenderer == null)
+        {
+            meshRenderer = collider.gameObject.AddComponent<MeshRenderer>();
+        }
+
+        meshRenderer.sharedMaterial = debugMaterial;
+    }
+
+    protected void BuildAttachments()
+    {
+        if (findAttachNodeByPart(parent).id.Contains(bottomNode)
+            || attachMode == AttachModes.SRF_ATTACH)
+        {
+            if (fixedMesh != "")
+            {
+                Transform fix = modelTransform.FindChild(fixedMesh);
+                if ((fix != null) && (parent != null))
+                {
+                    AttachToParent(fix);
+                }
+            }
+        }
+        else
+        {
+            foreach (Transform t in modelTransform)
+            {
+                if (t.name != fixedMesh)
+                    AttachToParent(t);
+            }
+            if (translateJoint)
+                translateAxis *= -1;
+        }
+        reparentFriction(transform);
+    }
+
+    protected void AttachToParent(Transform obj)
+    {
+        if (rotateJoint)
+        {
+            var pivot = transform.TransformPoint(rotatePivot);
+            var raxis = transform.TransformDirection(rotateAxis);
+            float sign = 1;
+            if (invertSymmetry)
+            {
+                //FIXME is this actually desired?
+                sign = ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? 1 : -1);
+            }
+            obj.RotateAround(pivot, raxis, sign * rotation);
+        }
+        else if (translateJoint)
+        {
+            var taxis = transform.TransformDirection(translateAxis.normalized);
+            obj.Translate(taxis * -(translation - translateMin), Space.Self);//XXX double check sign!
+        }
+        obj.parent = parent.transform;
+    }
 
 	protected override void onPartStart()
 	{
@@ -330,24 +402,9 @@ public class MuMechToggle : MuMechPart
 			return;
 		}
 
-		if (fixedMesh != "")
-		{
-            Transform fix = transform.FindChild("model").FindChild(fixedMesh);
-            if ((fix != null) && (parent != null))
-            {
-                if (rotateJoint)
-                {
-                    fix.RotateAround(transform.TransformPoint(rotatePivot), transform.TransformDirection(rotateAxis), (invertSymmetry ? ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? -1 : 1) : -1) * rotation);
-                }
-                else if (translateJoint)
-                {
-                    fix.Translate(transform.TransformDirection(translateAxis.normalized) * translation, Space.World);
-                }
+        modelTransform = transform.Find("model");
+        BuildAttachments();
 
-                fix.parent = parent.transform;
-            }
-		}
-		reparentFriction(transform);
 		on = true;
 		updateState();
 	}
@@ -401,13 +458,13 @@ public class MuMechToggle : MuMechPart
 		{
 			print("setupJoints - !gotOrig");
 
-			if ((rotate_model != "") && (transform.FindChild("model").FindChild(rotate_model) != null))
+            if ((rotate_model != "") && (modelTransform.Find(rotate_model) != null))
             {
-				//origRotation = transform.FindChild("model").FindChild(rotate_model).localRotation;
+                //origRotation = modelTransform.FindChild(rotate_model).localRotation;
 			}
-			else if ((translate_model != "") && (transform.FindChild("model").FindChild(translate_model) != null))
+            else if ((translate_model != "") && (modelTransform.Find(translate_model) != null))
             {
-				//origTranslation = transform.FindChild("model").FindChild(translate_model).localPosition;
+                //origTranslation = modelTransform.FindChild(translate_model).localPosition;
 			}
 
 			if (translateJoint)
@@ -859,7 +916,7 @@ public class MuMechToggle : MuMechPart
             //    }
             //}
 
-            //if ((rotationChanged != 0) && (rotateJoint || (transform.FindChild("model").FindChild(rotate_model) != null)))
+            //if ((rotationChanged != 0) && (rotateJoint || (modelTransform.FindChild(rotate_model) != null)))
             //{
             //    if (rotateJoint)
             //    {
@@ -871,11 +928,11 @@ public class MuMechToggle : MuMechPart
             //    else
             //    {
             //        Quaternion curRot = Quaternion.AngleAxis((invertSymmetry ? ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? 1 : -1) : 1) * rotation, rotateAxis);
-            //        transform.FindChild("model").FindChild(rotate_model).localRotation = curRot;
+            //        modelTransform.FindChild(rotate_model).localRotation = curRot;
             //    }
             //}
 
-            //if ((translationChanged != 0) && (translateJoint || (transform.FindChild("model").FindChild(translate_model) != null)))
+            //if ((translationChanged != 0) && (translateJoint || (modelTransform.FindChild(translate_model) != null)))
             //{
             //    if (translateJoint)
             //    {
@@ -883,7 +940,7 @@ public class MuMechToggle : MuMechPart
             //    }
             //    else
             //    {
-            //        transform.FindChild("model").FindChild(translate_model).localPosition = origTranslation + translateAxis.normalized * (translation - translationDelta);
+            //        modelTransform.FindChild(translate_model).localPosition = origTranslation + translateAxis.normalized * (translation - translationDelta);
             //    }
             //}
 
@@ -1143,7 +1200,7 @@ public class MuMechToggle : MuMechPart
             }
         }
 
-        if ((rotationChanged != 0) && (rotateJoint || (transform.FindChild("model").FindChild(rotate_model) != null)))
+        if ((rotationChanged != 0) && (rotateJoint || (modelTransform.Find(rotate_model) != null)))
         {
             // TODO: Fix if else?
             if (rotateJoint)
@@ -1160,11 +1217,11 @@ public class MuMechToggle : MuMechPart
             else
             {
                 Quaternion curRot = Quaternion.AngleAxis((invertSymmetry ? ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? 1 : -1) : 1) * rotation, rotateAxis);
-                transform.FindChild("model").FindChild(rotate_model).localRotation = curRot;
+                modelTransform.Find(rotate_model).localRotation = curRot;
             }
         }
 
-        if ((translationChanged != 0) && (translateJoint || (transform.FindChild("model").FindChild(translate_model) != null)))
+        if ((translationChanged != 0) && (translateJoint || (modelTransform.Find(translate_model) != null)))
         {
             // TODO: Fix if else?
             if (translateJoint)
