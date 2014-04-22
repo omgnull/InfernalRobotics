@@ -215,75 +215,63 @@ public class MuMechToggle : MuMechPart
 
 	protected void colliderizeChilds(Transform obj)
 	{
-		//if (obj.name.StartsWith("node_collider") || obj.name.StartsWith("fixed_node_collider") || obj.name.StartsWith("mobile_node_collider"))
-		//{
-		//    print("Toggle: converting collider " + obj.name);
-		//    Mesh sharedMesh = UnityEngine.Object.Instantiate(obj.GetComponent<MeshFilter>().mesh) as Mesh;
-		//    UnityEngine.Object.Destroy(obj.GetComponent<MeshFilter>());
-		//    UnityEngine.Object.Destroy(obj.GetComponent<MeshRenderer>());
-		//    MeshCollider meshCollider = obj.gameObject.AddComponent<MeshCollider>();
-		//    meshCollider.sharedMesh = sharedMesh;
-		//    meshCollider.convex = true;
-		//    obj.parent = transform;
-		//    if (obj.name.StartsWith("mobile_node_collider"))
-		//    {
-		//        mobileColliders.Add(obj);
-		//    }
-		//}
-		//for (int i = 0; i < obj.childCount; i++)
-		//{
-		//    colliderizeChilds(obj.GetChild(i));
-		//}
+        if (obj.name.StartsWith("node_collider")
+            || obj.name.StartsWith("fixed_node_collider")
+            || obj.name.StartsWith("mobile_node_collider"))
+        {
+            print("Toggle: converting collider " + obj.name);
 
-        //*
+            if (!obj.GetComponent<MeshFilter>())
+            {
+                print("Collider has no MeshFilter (yet?): skipping Colliderize");
+            }
+            else
+            {
+                Mesh sharedMesh = UnityEngine.Object.Instantiate(obj.GetComponent<MeshFilter>().mesh) as Mesh;
+                UnityEngine.Object.Destroy(obj.GetComponent<MeshFilter>());
+                UnityEngine.Object.Destroy(obj.GetComponent<MeshRenderer>());
+                MeshCollider meshCollider = obj.gameObject.AddComponent<MeshCollider>();
+                meshCollider.sharedMesh = sharedMesh;
+                meshCollider.convex = true;
+                obj.parent = transform;
 
+                if (obj.name.StartsWith("mobile_node_collider"))
+                {
+                    mobileColliders.Add(obj);
+                }
+            }
+        }
 
-
-		if (obj.name.StartsWith("node_collider") || obj.name.StartsWith("fixed_node_collider") || obj.name.StartsWith("mobile_node_collider"))
-		{
-			print("Toggle: converting collider " + obj.name);
-
-			if (!obj.GetComponent<MeshFilter>())
-			{
-				print("Collider has no MeshFilter (yet?): skipping Colliderize");
-			}
-			else
-			{
-				Mesh sharedMesh = UnityEngine.Object.Instantiate(obj.GetComponent<MeshFilter>().mesh) as Mesh;
-				UnityEngine.Object.Destroy(obj.GetComponent<MeshFilter>());
-				UnityEngine.Object.Destroy(obj.GetComponent<MeshRenderer>());
-				MeshCollider meshCollider = obj.gameObject.AddComponent<MeshCollider>();
-				meshCollider.sharedMesh = sharedMesh;
-				meshCollider.convex = true;
-				obj.parent = transform;
-
-				if (obj.name.StartsWith("mobile_node_collider"))
-				{
-					mobileColliders.Add(obj);
-				}
-			}
-		}
-		for (int i = 0; i < obj.childCount; i++)
-		{
-			colliderizeChilds(obj.GetChild(i));
-		}
-        //*/
+        for (int i = 0; i < obj.childCount; i++)
+        {
+            colliderizeChilds(obj.GetChild(i));
+        }
 	}
 
 	protected override void onPartAwake()
 	{
-        colliderizeChilds(modelTransform);
+        if (modelTransform != null)
+        {
+            colliderizeChilds(modelTransform);
+        }
+
 		base.onPartAwake();
 	}
 
 	protected override void onPartLoad()
 	{
-        colliderizeChilds(modelTransform);
+        if (modelTransform != null)
+        {
+            colliderizeChilds(modelTransform);
+        }
+        
 		base.onPartLoad();
 	}
 
 	protected void reparentFriction(Transform obj)
 	{
+        Vector3 actionAxis = rotateJoint ? rotateAxis : translateAxis;
+        
         for (int i = 0; i < obj.childCount; i++)
         {
             Transform child = obj.GetChild(i);
@@ -344,52 +332,19 @@ public class MuMechToggle : MuMechPart
         meshRenderer.sharedMaterial = debugMaterial;
     }
 
-    protected void BuildAttachments()
-    {
-        if (findAttachNodeByPart(parent).id.Contains(bottomNode)
-            || attachMode == AttachModes.SRF_ATTACH)
-        {
-            if (fixedMesh != "")
-            {
-                Transform fix = modelTransform.FindChild(fixedMesh);
-                if ((fix != null) && (parent != null))
-                {
-                    AttachToParent(fix);
-                }
-            }
-        }
-        else
-        {
-            foreach (Transform t in modelTransform)
-            {
-                if (t.name != fixedMesh)
-                    AttachToParent(t);
-            }
-            if (translateJoint)
-                translateAxis *= -1;
-        }
-        reparentFriction(transform);
-    }
-
     protected void AttachToParent(Transform obj)
     {
-        if (rotateJoint)
+        int direction = (invertSymmetry ? ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? -1 : 1) : -1);
+		
+		if (rotateJoint)
         {
-            var pivot = transform.TransformPoint(rotatePivot);
-            var raxis = transform.TransformDirection(rotateAxis);
-            float sign = 1;
-            if (invertSymmetry)
-            {
-                //FIXME is this actually desired?
-                sign = ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? 1 : -1);
-            }
-            obj.RotateAround(pivot, raxis, sign * rotation);
+			obj.RotateAround(transform.TransformPoint(rotatePivot), transform.TransformDirection(rotateAxis), rotation * direction);
         }
         else if (translateJoint)
         {
-            var taxis = transform.TransformDirection(translateAxis.normalized);
-            obj.Translate(taxis * -(translation - translateMin), Space.Self);//XXX double check sign!
+			obj.Translate(transform.TransformDirection(translateAxis.normalized) * translation * direction, Space.World);
         }
+
         obj.parent = parent.transform;
     }
 
@@ -403,8 +358,37 @@ public class MuMechToggle : MuMechPart
 		}
 
         modelTransform = transform.Find("model");
-        BuildAttachments();
 
+        if (fixedMesh != "" && parent != null && modelTransform != null)
+        {
+            if (findAttachNodeByPart(parent).id.Contains(bottomNode)
+            || attachMode == AttachModes.SRF_ATTACH)
+            {
+                try
+                {
+                    AttachToParent(modelTransform.FindChild(fixedMesh));
+                }
+                catch (NullReferenceException e)
+                {
+                    Debug.Log(string.Format("[IR] Fixed mesh '{0}' not found.", fixedMesh));
+                }
+            }
+            else
+            {
+                rotateAxis *= -1;
+                translateAxis *= -1;
+
+                foreach (Transform childTransform in modelTransform)
+                {
+                    if (childTransform.name != fixedMesh)
+                    {
+                        AttachToParent(childTransform);
+                    }
+                }
+            }
+        }
+        
+        reparentFriction(transform);
 		on = true;
 		updateState();
 	}
@@ -695,18 +679,6 @@ public class MuMechToggle : MuMechPart
 		translationDelta = translation;
 		gotOrig = false;
 	}
-
-	//public void rotate(float amount)
-	//{
-	//    rotation += amount;
-	//    rotationChanged = 8;
-	//}
-
-	//public void translate(float amount)
-	//{
-	//    translation += amount;
-	//    translationChanged = 8;
-	//}
 
 	protected override void onPartFixedUpdate()
 	{
@@ -1226,7 +1198,7 @@ public class MuMechToggle : MuMechPart
             // TODO: Fix if else?
             if (translateJoint)
             {
-                joint.targetPosition = -translateAxis * (translation - translationDelta);
+                joint.targetPosition = -translateAxis * (translation - translationDelta) * (invertSymmetry ? ((isSymmMaster() || (symmetryCounterparts.Count != 1)) ? 1 : -1) : 1);
             }
             else
             {
